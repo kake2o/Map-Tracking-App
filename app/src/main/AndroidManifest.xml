@@ -33,7 +33,10 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
-
+        <service android:name=".location.LocationService"
+            android:exported="false"
+            android:enabled="true"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>

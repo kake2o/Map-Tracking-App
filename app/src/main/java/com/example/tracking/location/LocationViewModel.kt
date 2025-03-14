@@ -2,13 +2,14 @@ package com.example.tracking.location
 
 
 import android.content.Context
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -17,13 +18,13 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class LocationViewModel(context: Context) : ViewModel() {
-    private val db = LocationDatabase.getDb(context.applicationContext)
+    private val locationRepository = LocationRepository(context)
 
-    private val _state = MutableStateFlow(Location(0.0, 0.0))
-    val state: StateFlow<Location> = _state.asStateFlow()
+    private val _currentLocation = MutableStateFlow<Location?>(null)
+    val currentLocation: StateFlow<Location?> = _currentLocation.asStateFlow()
 
-    private val _path = MutableStateFlow<List<Location>>(emptyList())
-    val path = _path.asStateFlow()
+    private val _locationHistory = MutableStateFlow<List<Location>>(emptyList())
+    val locationHistory: StateFlow<List<Location>> = _locationHistory.asStateFlow()
 
     private val _elapsedTime = MutableStateFlow(0L)
     val elapsedTime: StateFlow<Long> = _elapsedTime.asStateFlow()
@@ -32,29 +33,47 @@ class LocationViewModel(context: Context) : ViewModel() {
     val distance: StateFlow<Double> = _distance.asStateFlow()
 
     private var tracking = false
-
     init {
-        loadLastLocation()
+        observeLocationHistory()
     }
 
-    private fun loadLastLocation() {
+    private fun observeLocationHistory() {
         viewModelScope.launch {
-
-            val lastLocation = db.getDao().getLastLocation()
-            if (lastLocation != null) {
-                _state.value = lastLocation
-                _path.value = db.getDao().getAllLocations()
-            }
+            locationRepository
+                .getAllLocations()
+                .distinctUntilChanged()
+                .collect { locations ->
+                    _locationHistory.value = locations
+                    _currentLocation.value = locations.lastOrNull()
+                }
         }
     }
 
     fun startTracking() {
         if (!tracking) {
             tracking = true
-            _elapsedTime.value = 0L
-            _distance.value = 0.0
-            Log.d("viewmodelvalues", "elapsedTime.value $_elapsedTime distance.value $_distance")
+            _elapsedTime.update { 0L }
+            _distance.update { 0.0 }
             startTimer()
+            startLocationUpdates()
+        }
+        clearLocations()
+    }
+
+    private fun startLocationUpdates() {
+        viewModelScope.launch {
+            while (tracking) {
+                delay(5000)
+                observeLocationHistory()
+                if (_locationHistory.value.size > 1) {
+                    _distance.update {
+                        _distance.value + calculateDistance(
+                            _locationHistory.value.last(),
+                            _locationHistory.value[_locationHistory.value.size - 2]
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -67,26 +86,8 @@ class LocationViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun updateLocation(latitude: Double, longitude: Double) {
-        _state.value = Location(latitude, longitude)
-        saveLocation(_state.value)
-    }
-
-    fun stopTracking() {
+    fun stopTracking(){
         tracking = false
-        if (_path.value.size > 1) {
-            val start = _path.value.first()
-            val end = _path.value.last()
-            _distance.value = calculateDistance(start, end)
-        }
-    }
-
-    private fun saveLocation(location: Location) {
-        viewModelScope.launch {
-            db.getDao().insertLocation(Location(location.latitude, location.longitude))
-        }
-        _path.value += location
-        Log.d("PATH VALUES", "${_path.value} values")
     }
 
     private fun calculateDistance(startLocation: Location, endLocation: Location): Double {
@@ -100,17 +101,11 @@ class LocationViewModel(context: Context) : ViewModel() {
         return radius * c
     }
 
-    fun clearLocations() {
+
+    private fun clearLocations() {
         viewModelScope.launch {
-            val lastLocation = db.getDao().getLastLocation()
-            db.getDao().clearAllLocations()
-            if (lastLocation != null) {
-                updateLocation(lastLocation.latitude, lastLocation.longitude)
-            } else {
-                val lastKnownLocation = _state.value
-                updateLocation(lastKnownLocation.latitude, lastKnownLocation.longitude)
-            }
+            locationRepository.clearLocations()
         }
-        _path.value = emptyList()
+        _locationHistory.value = emptyList()
     }
 }

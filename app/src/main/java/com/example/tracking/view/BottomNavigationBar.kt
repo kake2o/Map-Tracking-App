@@ -19,7 +19,6 @@ import com.example.tracking.location.LocationService
 fun BottomBar(
     context: Context,
     viewModel: LocationViewModel,
-
     ) {
     BottomAppBar(modifier = Modifier.fillMaxWidth()) {
         BottomItem.btmItem.forEach { item ->
@@ -28,22 +27,22 @@ fun BottomBar(
                 onClick = {
                     when (item.name) {
                         "Start" -> {
-                            viewModel.clearLocations()
                             viewModel.startTracking()
                             val intent =
                                 Intent(
                                     context.applicationContext,
                                     LocationService::class.java
-                                ).apply {
-                                    action = "crash"
-                                }
+                                )
                             context.startService(intent)
                         }
 
                         "Stop" -> {
                             viewModel.stopTracking()
                             val intent =
-                                Intent(context.applicationContext, LocationService::class.java)
+                                Intent(
+                                    context.applicationContext,
+                                    LocationService::class.java
+                                )
                             context.stopService(intent)
                         }
                     }
